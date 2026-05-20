@@ -2,12 +2,13 @@ name: Full DevOps Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
+  workflow_dispatch:
 
 jobs:
-  # =====================================
-  # 1. TERRAFORM : Déploiement Infrastructure
-  # =====================================
+  # ══════════════════════════════════════════
+  # 1. TERRAFORM — Provision Infrastructure
+  # ══════════════════════════════════════════
   terraform:
     name: Provision Infrastructure
     runs-on: ubuntu-latest
@@ -16,19 +17,17 @@ jobs:
         working-directory: terraform
     outputs:
       instance_ips: ${{ steps.export.outputs.instance_ips }}
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
 
-      - name: Install jq
-        run: sudo apt install -y jq
-
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}  # ✅ Corrigé : aws-region au lieu de region
+          aws-region:            ${{ secrets.AWS_REGION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -40,7 +39,8 @@ jobs:
         run: terraform validate
 
       - name: Terraform Plan
-        run: terraform plan -out=tfplan
+        run: terraform plan -out=tfplan \
+          -var="key_name=${{ secrets.EC2_KEY_NAME }}"
 
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
@@ -48,23 +48,25 @@ jobs:
       - name: Export Instance IPs
         id: export
         run: |
-          IPS=$(terraform output -json instance_public_ips | jq -r '.[] | join(",")')
+          IPS=$(terraform output -json instance_public_ips \
+            | jq -r '.[]' | tr '\n' ',')
           echo "instance_ips=$IPS" >> $GITHUB_OUTPUT
 
-  # =====================================
-  # 2. ANSIBLE : Configuration des serveurs
-  # =====================================
+  # ══════════════════════════════════════════
+  # 2. ANSIBLE — Configure & Deploy
+  # ══════════════════════════════════════════
   ansible:
     name: Configure Servers
     runs-on: ubuntu-latest
     needs: terraform
+
     steps:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Install Ansible and jq
+      - name: Install Ansible
         run: |
-          sudo apt update
+          sudo apt update -y
           sudo apt install -y ansible jq
 
       - name: Setup SSH Key
@@ -72,37 +74,51 @@ jobs:
           echo "${{ secrets.EC2_KEY }}" > key.pem
           chmod 600 key.pem
 
-      - name: Generate Inventory
+      - name: Wait for SSH to be ready
+        run: |
+          for ip in $(echo "${{ needs.terraform.outputs.instance_ips }}" | tr ',' ' '); do
+            echo "Waiting for $ip..."
+            timeout 120 bash -c "until nc -z $ip 22; do sleep 5; done"
+          done
+
+      - name: Generate Ansible Inventory
         run: |
           echo "[web]" > inventory.ini
-          for ip in $(echo "${{ needs.terraform.outputs.instance_ips }}" | tr ',' '\n'); do
+          for ip in $(echo "${{ needs.terraform.outputs.instance_ips }}" | tr ',' ' '); do
             echo "$ip ansible_user=ec2-user ansible_ssh_private_key_file=key.pem" >> inventory.ini
           done
           cat inventory.ini
 
-      - name: Run Ansible Deployment
-        run: ansible-playbook -i inventory.ini ansible/deploy.yml
+      - name: Run Ansible Playbook
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
+        run: |
+          ansible-playbook -i inventory.ini ansible/deploy.yml -v
 
-  # =====================================
-  # 3. OPTIONNEL : Destruction de l'infrastructure
-  # =====================================
+  # ══════════════════════════════════════════
+  # 3. DESTROY (manuel uniquement)
+  # ══════════════════════════════════════════
   destroy:
-    name: Destroy Infrastructure (Manual)
+    name: Destroy Infrastructure
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    needs: [terraform, ansible]
     defaults:
       run:
         working-directory: terraform
+
     steps:
       - uses: actions/checkout@v3
-      - uses: hashicorp/setup-terraform@v3
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}  # ✅ Corrigé : aws-region
+          aws-region:            ${{ secrets.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+
       - name: Terraform Destroy
-        run: terraform destroy -auto-approve
+        run: terraform destroy -auto-approve \
+          -var="key_name=${{ secrets.EC2_KEY_NAME }}"
