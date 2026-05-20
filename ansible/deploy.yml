@@ -1,0 +1,74 @@
+---
+- name: Install Docker and deploy e-commerce app
+  hosts: all
+  become: yes
+  tasks:
+    - name: Update apt package index
+      apt:
+        update_cache: yes
+
+    - name: Install required packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+        state: present
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
+        state: present
+
+    - name: Install Docker
+      apt:
+        name: docker-ce
+        state: present
+
+    - name: Install Docker Compose
+      get_url:
+        url: https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-linux-x86_64
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+
+    - name: Start and enable Docker service
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Run MongoDB container
+      community.docker.docker_container:
+        name: mongodb
+        image: mongo
+        ports:
+          - "27017:27017"
+        volumes:
+          - mongodb_data:/data/db
+        detach: true
+
+    - name: Run Node.js app container
+      community.docker.docker_container:
+        name: node-app
+        image: node:18
+        command: ["sh", "-c", "echo 'const http = require(\"http\"); http.createServer((req, res) => res.end(\"E-Commerce Store: Laptop $1200, Phone $800\")).listen(3000);' > app.js && node app.js"]
+        ports:
+          - "3000:3000"
+        detach: true
+
+    - name: Run Nginx container
+      community.docker.docker_container:
+        name: nginx
+        image: nginx
+        ports:
+          - "80:80"
+        detach: true
+
+  volumes:
+    mongodb_data:
