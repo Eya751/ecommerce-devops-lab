@@ -5,6 +5,9 @@ on:
     branches: [ "main" ]
 
 jobs:
+  # =====================================
+  # 1. TERRAFORM : Déploiement Infrastructure
+  # =====================================
   terraform:
     name: Provision Infrastructure
     runs-on: ubuntu-latest
@@ -17,12 +20,15 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v3
 
+      - name: Install jq
+        run: sudo apt install -y jq
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ secrets.AWS_REGION }}  # ✅ Corrigé : aws-region au lieu de region
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -45,6 +51,9 @@ jobs:
           IPS=$(terraform output -json instance_public_ips | jq -r '.[] | join(",")')
           echo "instance_ips=$IPS" >> $GITHUB_OUTPUT
 
+  # =====================================
+  # 2. ANSIBLE : Configuration des serveurs
+  # =====================================
   ansible:
     name: Configure Servers
     runs-on: ubuntu-latest
@@ -67,7 +76,7 @@ jobs:
         run: |
           echo "[web]" > inventory.ini
           for ip in $(echo "${{ needs.terraform.outputs.instance_ips }}" | tr ',' '\n'); do
-            echo "$ip ansible_user=ubuntu ansible_ssh_private_key_file=key.pem" >> inventory.ini
+            echo "$ip ansible_user=ec2-user ansible_ssh_private_key_file=key.pem" >> inventory.ini
           done
           cat inventory.ini
 
@@ -75,3 +84,25 @@ jobs:
         run: ansible-playbook -i inventory.ini ansible/deploy.yml
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
+
+  # =====================================
+  # 3. OPTIONNEL : Destruction de l'infrastructure
+  # =====================================
+  destroy:
+    name: Destroy Infrastructure (Manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v3
+      - uses: hashicorp/setup-terraform@v3
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}  # ✅ Corrigé : aws-region
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve
