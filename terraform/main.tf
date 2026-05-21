@@ -1,4 +1,6 @@
-# Provider AWS
+# =========================
+# PROVIDER
+# =========================
 provider "aws" {
   region = var.aws_region
 }
@@ -17,13 +19,13 @@ resource "aws_vpc" "main" {
 }
 
 # =========================
-# Subnets (2 publics pour ALB + EC2 simple lab)
+# SUBNETS (NO AZ DATA SOURCE → FIX FOR AWS ACADEMY)
 # =========================
 resource "aws_subnet" "public" {
   count                   = 2
   vpc_id                  = aws_vpc.main.id
   cidr_block              = cidrsubnet("10.0.0.0/16", 8, count.index)
-  availability_zone       = "${var.aws_region}${count.index == 0 ? "a" : "b"}"
+  availability_zone       = "us-east-1a"
   map_public_ip_on_launch = true
 
   tags = {
@@ -32,7 +34,7 @@ resource "aws_subnet" "public" {
 }
 
 # =========================
-# Internet Gateway
+# INTERNET GATEWAY
 # =========================
 resource "aws_internet_gateway" "gw" {
   vpc_id = aws_vpc.main.id
@@ -43,7 +45,7 @@ resource "aws_internet_gateway" "gw" {
 }
 
 # =========================
-# Route Table
+# ROUTE TABLE
 # =========================
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
@@ -65,7 +67,7 @@ resource "aws_route_table_association" "public" {
 }
 
 # =========================
-# Security Group ALB
+# SECURITY GROUP ALB
 # =========================
 resource "aws_security_group" "alb" {
   name   = "alb-sg"
@@ -87,7 +89,7 @@ resource "aws_security_group" "alb" {
 }
 
 # =========================
-# Security Group EC2
+# SECURITY GROUP EC2
 # =========================
 resource "aws_security_group" "ec2" {
   name   = "ec2-sg"
@@ -127,8 +129,8 @@ resource "aws_security_group" "ec2" {
 # =========================
 resource "aws_lb" "ecommerce_alb" {
   name               = "ecommerce-alb"
-  internal           = false
   load_balancer_type = "application"
+  internal           = false
 
   security_groups = [aws_security_group.alb.id]
   subnets         = aws_subnet.public[*].id
@@ -139,7 +141,7 @@ resource "aws_lb" "ecommerce_alb" {
 }
 
 # =========================
-# Target Group
+# TARGET GROUP
 # =========================
 resource "aws_lb_target_group" "ecommerce_tg" {
   name     = "ecommerce-tg"
@@ -153,7 +155,7 @@ resource "aws_lb_target_group" "ecommerce_tg" {
 }
 
 # =========================
-# Listener
+# LISTENER
 # =========================
 resource "aws_lb_listener" "ecommerce_listener" {
   load_balancer_arn = aws_lb.ecommerce_alb.arn
@@ -167,7 +169,7 @@ resource "aws_lb_listener" "ecommerce_listener" {
 }
 
 # =========================
-# EC2 Instances (FIXED AMI - no data source)
+# EC2 INSTANCES (NO DATA SOURCE AMI → FIX)
 # =========================
 resource "aws_instance" "web" {
   count         = 2
@@ -185,9 +187,9 @@ resource "aws_instance" "web" {
 }
 
 # =========================
-# Attach EC2 to Target Group
+# ATTACH TO TARGET GROUP
 # =========================
-resource "aws_lb_target_group_attachment" "ecommerce_tg_attach" {
+resource "aws_lb_target_group_attachment" "attach" {
   count            = 2
   target_group_arn = aws_lb_target_group.ecommerce_tg.arn
   target_id        = aws_instance.web[count.index].id
