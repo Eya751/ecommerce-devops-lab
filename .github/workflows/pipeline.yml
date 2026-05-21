@@ -6,9 +6,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ══════════════════════════════════════════
-  # 1. TERRAFORM — Provision Infrastructure
-  # ══════════════════════════════════════════
   terraform:
     name: Provision Infrastructure
     runs-on: ubuntu-latest
@@ -27,6 +24,7 @@ jobs:
         with:
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region:            ${{ secrets.AWS_REGION }}
 
       - name: Setup Terraform
@@ -39,8 +37,7 @@ jobs:
         run: terraform validate
 
       - name: Terraform Plan
-        run: terraform plan -out=tfplan \
-          -var="key_name=${{ secrets.EC2_KEY_NAME }}"
+        run: terraform plan -out=tfplan
 
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
@@ -52,9 +49,6 @@ jobs:
             | jq -r '.[]' | tr '\n' ',')
           echo "instance_ips=$IPS" >> $GITHUB_OUTPUT
 
-  # ══════════════════════════════════════════
-  # 2. ANSIBLE — Configure & Deploy
-  # ══════════════════════════════════════════
   ansible:
     name: Configure Servers
     runs-on: ubuntu-latest
@@ -95,9 +89,6 @@ jobs:
         run: |
           ansible-playbook -i inventory.ini ansible/deploy.yml -v
 
-  # ══════════════════════════════════════════
-  # 3. DESTROY (manuel uniquement)
-  # ══════════════════════════════════════════
   destroy:
     name: Destroy Infrastructure
     if: github.event_name == 'workflow_dispatch'
@@ -115,10 +106,10 @@ jobs:
         with:
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region:            ${{ secrets.AWS_REGION }}
 
       - uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Destroy
-        run: terraform destroy -auto-approve \
-          -var="key_name=${{ secrets.EC2_KEY_NAME }}"
+        run: terraform destroy -auto-approve
