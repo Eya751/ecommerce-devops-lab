@@ -3,89 +3,59 @@ provider "aws" {
   region = var.aws_region
 }
 
-<<<<<<< HEAD
-# Data sources
-data "aws_availability_zones" "available" {}
-
-data "aws_ami" "amazon_linux" {
-  most_recent = true
-  owners      = ["amazon"]
-  filter {
-    name   = "name"
-    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
-  }
-}
-
-=======
->>>>>>> 6e8b971343c51238e1286b91a8890d6ef461b259
+# =========================
 # VPC
+# =========================
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_support   = true
   enable_dns_hostnames = true
-<<<<<<< HEAD
-  tags = { Name = "ecommerce-vpc" }
-}
 
-# 2 Subnets publics dans 2 zones différentes (obligatoire pour ALB)
-resource "aws_subnet" "public" {
-  count                   = 2
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = cidrsubnet("10.0.0.0/16", 8, count.index)
-  availability_zone       = data.aws_availability_zones.available.names[count.index]
-  map_public_ip_on_launch = true
-  tags = { Name = "public-subnet-${count.index}" }
-=======
   tags = {
     Name = "ecommerce-vpc"
   }
 }
 
-# Subnet public (pour l'ALB)
+# =========================
+# Subnets (2 publics pour ALB + EC2 simple lab)
+# =========================
 resource "aws_subnet" "public" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.1.0/24"
-  availability_zone = "${var.aws_region}a"
+  count                   = 2
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = cidrsubnet("10.0.0.0/16", 8, count.index)
+  availability_zone       = "${var.aws_region}${count.index == 0 ? "a" : "b"}"
+  map_public_ip_on_launch = true
+
   tags = {
-    Name = "public-subnet"
+    Name = "public-subnet-${count.index}"
   }
 }
 
-# Subnet privé (pour les EC2)
-resource "aws_subnet" "private" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.2.0/24"
-  availability_zone = "${var.aws_region}a"
-  tags = {
-    Name = "private-subnet"
-  }
->>>>>>> 6e8b971343c51238e1286b91a8890d6ef461b259
-}
-
+# =========================
 # Internet Gateway
+# =========================
 resource "aws_internet_gateway" "gw" {
   vpc_id = aws_vpc.main.id
-<<<<<<< HEAD
-  tags   = { Name = "ecommerce-igw" }
-}
 
-# Route Table
-=======
   tags = {
     Name = "ecommerce-igw"
   }
 }
 
-# Route Table pour le subnet public
->>>>>>> 6e8b971343c51238e1286b91a8890d6ef461b259
+# =========================
+# Route Table
+# =========================
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
+
   route {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.gw.id
   }
-<<<<<<< HEAD
-  tags = { Name = "public-rt" }
+
+  tags = {
+    Name = "public-rt"
+  }
 }
 
 resource "aws_route_table_association" "public" {
@@ -94,28 +64,12 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
+# =========================
 # Security Group ALB
+# =========================
 resource "aws_security_group" "alb" {
   name   = "alb-sg"
   vpc_id = aws_vpc.main.id
-=======
-  tags = {
-    Name = "public-rt"
-  }
-}
-
-# Association de la route table au subnet public
-resource "aws_route_table_association" "public" {
-  subnet_id      = aws_subnet.public.id
-  route_table_id = aws_route_table.public.id
-}
-
-# Security Group pour l'ALB
-resource "aws_security_group" "alb" {
-  name        = "alb-sg"
-  description = "Allow HTTP/HTTPS inbound traffic"
-  vpc_id      = aws_vpc.main.id
->>>>>>> 6e8b971343c51238e1286b91a8890d6ef461b259
 
   ingress {
     from_port   = 80
@@ -123,17 +77,7 @@ resource "aws_security_group" "alb" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
-<<<<<<< HEAD
-=======
 
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
->>>>>>> 6e8b971343c51238e1286b91a8890d6ef461b259
   egress {
     from_port   = 0
     to_port     = 0
@@ -142,8 +86,9 @@ resource "aws_security_group" "alb" {
   }
 }
 
-<<<<<<< HEAD
+# =========================
 # Security Group EC2
+# =========================
 resource "aws_security_group" "ec2" {
   name   = "ec2-sg"
   vpc_id = aws_vpc.main.id
@@ -154,37 +99,21 @@ resource "aws_security_group" "ec2" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
-=======
-# Security Group pour les EC2
-resource "aws_security_group" "ec2" {
-  name        = "ec2-sg"
-  description = "Allow SSH and traffic from ALB"
-  vpc_id      = aws_vpc.main.id
 
-  ingress {
-    from_port       = 22
-    to_port         = 22
-    protocol        = "tcp"
-    cidr_blocks     = ["0.0.0.0/0"]
-  }
-
->>>>>>> 6e8b971343c51238e1286b91a8890d6ef461b259
   ingress {
     from_port       = 80
     to_port         = 80
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
-<<<<<<< HEAD
+
   ingress {
     from_port   = 3000
     to_port     = 3000
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
-=======
 
->>>>>>> 6e8b971343c51238e1286b91a8890d6ef461b259
   egress {
     from_port   = 0
     to_port     = 0
@@ -193,88 +122,71 @@ resource "aws_security_group" "ec2" {
   }
 }
 
-<<<<<<< HEAD
-# ALB avec 2 subnets
-=======
+# =========================
 # ALB
->>>>>>> 6e8b971343c51238e1286b91a8890d6ef461b259
+# =========================
 resource "aws_lb" "ecommerce_alb" {
   name               = "ecommerce-alb"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
-<<<<<<< HEAD
-  subnets            = aws_subnet.public[*].id
-  tags               = { Name = "ecommerce-alb" }
-=======
-  subnets            = [aws_subnet.public.id]
+
+  security_groups = [aws_security_group.alb.id]
+  subnets         = aws_subnet.public[*].id
+
   tags = {
     Name = "ecommerce-alb"
   }
->>>>>>> 6e8b971343c51238e1286b91a8890d6ef461b259
 }
 
+# =========================
 # Target Group
+# =========================
 resource "aws_lb_target_group" "ecommerce_tg" {
   name     = "ecommerce-tg"
   port     = 80
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
-<<<<<<< HEAD
 
   health_check {
-    path                = "/"
-    healthy_threshold   = 2
-    unhealthy_threshold = 5
-    interval            = 30
+    path = "/"
   }
 }
 
+# =========================
 # Listener
-=======
-}
-
-# Listener pour l'ALB
->>>>>>> 6e8b971343c51238e1286b91a8890d6ef461b259
+# =========================
 resource "aws_lb_listener" "ecommerce_listener" {
   load_balancer_arn = aws_lb.ecommerce_alb.arn
   port              = 80
   protocol          = "HTTP"
+
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.ecommerce_tg.arn
   }
 }
 
-<<<<<<< HEAD
-# EC2 Instances — AMI dynamique + subnet public
-resource "aws_instance" "web" {
-  count                       = 2
-  ami                         = data.aws_ami.amazon_linux.id
-  instance_type               = "t2.micro"
-  subnet_id                   = aws_subnet.public[count.index].id
-  vpc_security_group_ids      = [aws_security_group.ec2.id]
-  associate_public_ip_address = true
-  tags = { Name = "web-server-${count.index}" }
-}
-
-# Attacher instances au Target Group
-=======
-# Instances EC2
+# =========================
+# EC2 Instances (FIXED AMI - no data source)
+# =========================
 resource "aws_instance" "web" {
   count         = 2
-  ami           = "ami-0c55b159cbfafe1f0" # Amazon Linux 2
+  ami           = "ami-0c02fb55956c7d316" # Amazon Linux 2 (us-east-1)
   instance_type = "t2.micro"
-  subnet_id     = aws_subnet.private.id
-  key_name      = var.key_name
+
+  subnet_id              = aws_subnet.public[count.index].id
   vpc_security_group_ids = [aws_security_group.ec2.id]
+
+  associate_public_ip_address = true
+
   tags = {
     Name = "web-server-${count.index}"
   }
 }
 
-# Attacher les instances au Target Group
->>>>>>> 6e8b971343c51238e1286b91a8890d6ef461b259
+# =========================
+# Attach EC2 to Target Group
+# =========================
 resource "aws_lb_target_group_attachment" "ecommerce_tg_attach" {
   count            = 2
   target_group_arn = aws_lb_target_group.ecommerce_tg.arn
