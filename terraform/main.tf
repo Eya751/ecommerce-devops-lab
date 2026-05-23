@@ -1,99 +1,73 @@
-# =========================
-# PROVIDER
-# =========================
-provider "aws" {
-  region = var.aws_region
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
 }
 
-# =========================
+provider "aws" {
+  region = "us-east-1"
+}
+
 # VPC
-# =========================
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
-  enable_dns_support   = true
   enable_dns_hostnames = true
-
-  tags = {
-    Name = "ecommerce-vpc"
-  }
+  enable_dns_support   = true
+  tags = { Name = "ecommerce-vpc" }
 }
 
-# =========================
-# SUBNETS (NO AZ DATA SOURCE → FIX FOR AWS ACADEMY)
-# =========================
-resource "aws_subnet" "public" {
-  count                   = 2
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = cidrsubnet("10.0.0.0/16", 8, count.index)
-  availability_zone       = "us-east-1a"
-  map_public_ip_on_launch = true
-
-  tags = {
-    Name = "public-subnet-${count.index}"
-  }
-}
-
-# =========================
-# INTERNET GATEWAY
-# =========================
+# Internet Gateway
 resource "aws_internet_gateway" "gw" {
   vpc_id = aws_vpc.main.id
-
-  tags = {
-    Name = "ecommerce-igw"
-  }
+  tags = { Name = "ecommerce-igw" }
 }
 
-# =========================
-# ROUTE TABLE
-# =========================
+# Public Subnet 1
+resource "aws_subnet" "public_1" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.1.0/24"
+  availability_zone       = "us-east-1a"
+  map_public_ip_on_launch = true
+  tags = { Name = "public-subnet-1" }
+}
+
+# Public Subnet 2
+resource "aws_subnet" "public_2" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.2.0/24"
+  availability_zone       = "us-east-1b"
+  map_public_ip_on_launch = true
+  tags = { Name = "public-subnet-2" }
+}
+
+# Route Table
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
-
   route {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.gw.id
   }
-
-  tags = {
-    Name = "public-rt"
-  }
+  tags = { Name = "public-rt" }
 }
 
-resource "aws_route_table_association" "public" {
-  count          = 2
-  subnet_id      = aws_subnet.public[count.index].id
+resource "aws_route_table_association" "public_1" {
+  subnet_id      = aws_subnet.public_1.id
   route_table_id = aws_route_table.public.id
 }
 
-# =========================
-# SECURITY GROUP ALB
-# =========================
-resource "aws_security_group" "alb" {
-  name   = "alb-sg"
-  vpc_id = aws_vpc.main.id
-
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+resource "aws_route_table_association" "public_2" {
+  subnet_id      = aws_subnet.public_2.id
+  route_table_id = aws_route_table.public.id
 }
 
-# =========================
-# SECURITY GROUP EC2
-# =========================
-resource "aws_security_group" "ec2" {
-  name   = "ec2-sg"
-  vpc_id = aws_vpc.main.id
+# Security Group
+resource "aws_security_group" "ec2_sg" {
+  name        = "ec2-sg"
+  description = "Allow SSH and HTTP"
+  vpc_id      = aws_vpc.main.id
 
   ingress {
     from_port   = 22
@@ -103,10 +77,10 @@ resource "aws_security_group" "ec2" {
   }
 
   ingress {
-    from_port       = 80
-    to_port         = 80
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   ingress {
@@ -122,76 +96,19 @@ resource "aws_security_group" "ec2" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+  tags = { Name = "ec2-sg" }
 }
 
-# =========================
-# ALB
-# =========================
-resource "aws_lb" "ecommerce_alb" {
-  name               = "ecommerce-alb"
-  load_balancer_type = "application"
-  internal           = false
-
-  security_groups = [aws_security_group.alb.id]
-  subnets         = aws_subnet.public[*].id
-
-  tags = {
-    Name = "ecommerce-alb"
-  }
-}
-
-# =========================
-# TARGET GROUP
-# =========================
-resource "aws_lb_target_group" "ecommerce_tg" {
-  name     = "ecommerce-tg"
-  port     = 80
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
-
-  health_check {
-    path = "/"
-  }
-}
-
-# =========================
-# LISTENER
-# =========================
-resource "aws_lb_listener" "ecommerce_listener" {
-  load_balancer_arn = aws_lb.ecommerce_alb.arn
-  port              = 80
-  protocol          = "HTTP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.ecommerce_tg.arn
-  }
-}
-
-# =========================
-# EC2 INSTANCES (NO DATA SOURCE AMI → FIX)
-# =========================
+# EC2 Instances (Ubuntu 22.04)
 resource "aws_instance" "web" {
-  count         = 2
-  ami           = "ami-0c02fb55956c7d316" # Amazon Linux 2 (us-east-1)
-  instance_type = "t2.micro"
-
-  subnet_id              = aws_subnet.public[count.index].id
-  vpc_security_group_ids = [aws_security_group.ec2.id]
-
+  count                       = 2
+  ami                         = "ami-053b0d53c279acc90"
+  instance_type               = "t2.micro"
+  subnet_id                   = count.index == 0 ? aws_subnet.public_1.id : aws_subnet.public_2.id
+  vpc_security_group_ids      = [aws_security_group.ec2_sg.id]
+  key_name                    = "vockey"
   associate_public_ip_address = true
 
-  tags = {
-    Name = "web-server-${count.index}"
-  }
-}
-
-# =========================
-# ATTACH TO TARGET GROUP
-# =========================
-resource "aws_lb_target_group_attachment" "attach" {
-  count            = 2
-  target_group_arn = aws_lb_target_group.ecommerce_tg.arn
-  target_id        = aws_instance.web[count.index].id
-  port             = 80
+  tags = { Name = "ecommerce-web-${count.index + 1}" }
 }
